@@ -204,16 +204,20 @@ class GraduationPredictor:
         if bool(sec.get('isMintable')):
             return False
         top10 = sec.get('top10HolderPercent')
-        try:
-            if top10 is not None:
+        if top10 is not None:
+            try:
                 top10_f = float(top10)
-                # Birdeye sometimes returns 0–1, sometimes 0–100; normalise to 0–1.
-                if top10_f > 1.0:
-                    top10_f = top10_f / 100.0
-                if top10_f > 0.80:
-                    return False
-        except (TypeError, ValueError):
-            pass
+            except (TypeError, ValueError):
+                log.warning(
+                    'Layer 1: %s has unparseable top10HolderPercent=%r; dropping candidate',
+                    address, top10,
+                )
+                return False
+            # Birdeye sometimes returns 0–1, sometimes 0–100; normalise to 0–1.
+            if top10_f > 1.0:
+                top10_f = top10_f / 100.0
+            if top10_f > 0.80:
+                return False
         return True
 
     async def _score_volume_velocity(self, address: str) -> tuple[int, float]:

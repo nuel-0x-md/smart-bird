@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS alerts_sent (
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_dedup
     ON alerts_sent(token_address, alert_type, sent_at);
+
+CREATE TABLE IF NOT EXISTS alert_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_address TEXT NOT NULL,
+    alert_type TEXT NOT NULL,
+    attempted_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attempts_dedup
+    ON alert_attempts(token_address, alert_type, attempted_at);
 """
 
 
@@ -193,7 +202,12 @@ class Database:
         """Final pipeline stage — an entry alert has been dispatched."""
         def _run() -> None:
             self._execute(
-                "UPDATE tracked_tokens SET status = 'alerted' WHERE address = ?",
+                """
+                UPDATE tracked_tokens
+                   SET status = 'alerted'
+                 WHERE address = ?
+                   AND status NOT IN ('exited')
+                """,
                 (address,),
             )
         await asyncio.to_thread(_run)
@@ -349,6 +363,38 @@ class Database:
                 (address, alert_type, int(time.time())),
             )
         await asyncio.to_thread(_run)
+
+    async def record_alert_attempt(self, address: str, alert_type: str) -> None:
+        """Record that we tried to dispatch an alert (success or failure).
+
+        Used by layer2_loop's re-enqueue throttle so a persistently-failing
+        Telegram send doesn't spam the signal queue every poll.
+        """
+        def _run() -> None:
+            self._execute(
+                """
+                INSERT INTO alert_attempts (token_address, alert_type, attempted_at)
+                VALUES (?, ?, ?)
+                """,
+                (address, alert_type, int(time.time())),
+            )
+        await asyncio.to_thread(_run)
+
+    async def was_attempted_recently(self, address: str, alert_type: str,
+                                      window_seconds: int) -> bool:
+        """True if any attempt (success or failure) was recorded inside the window."""
+        def _run() -> bool:
+            cutoff = int(time.time()) - int(window_seconds)
+            row = self._query_one(
+                """
+                SELECT id FROM alert_attempts
+                 WHERE token_address = ? AND alert_type = ? AND attempted_at >= ?
+                 LIMIT 1
+                """,
+                (address, alert_type, cutoff),
+            )
+            return row is not None
+        return await asyncio.to_thread(_run)
 
     async def count_alerts_since(self, seconds_back: int) -> int:
         """Return how many alerts have been recorded in the trailing window."""

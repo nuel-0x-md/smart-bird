@@ -69,8 +69,13 @@ class LiquidityMonitor:
         snapshots = await self.db.get_liquidity_window(
             address, LIQUIDITY_WINDOW_SECONDS,
         )
-        if len(snapshots) < 2:
+        if not snapshots:
             return None
+
+        # Concentration is a single-point measurement; it can fire on the
+        # very first snapshot. Liquidity-drop needs at least two snapshots
+        # so we can compute a window-relative delta.
+        single_snapshot = len(snapshots) < 2
 
         oldest = snapshots[0]
         newest = snapshots[-1]
@@ -83,11 +88,11 @@ class LiquidityMonitor:
             current_lp_f = 0.0
 
         drop_pct = 0.0
-        if oldest_liq > 0:
+        if not single_snapshot and oldest_liq > 0:
             drop_pct = max(0.0, (oldest_liq - newest_liq) / oldest_liq)
 
         concentration_breach = current_lp_f > LP_CONCENTRATION_THRESHOLD
-        drop_breach = drop_pct > LIQUIDITY_DROP_THRESHOLD
+        drop_breach = (not single_snapshot) and drop_pct > LIQUIDITY_DROP_THRESHOLD
 
         if not (concentration_breach or drop_breach):
             return None

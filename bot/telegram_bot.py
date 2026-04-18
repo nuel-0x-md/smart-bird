@@ -34,6 +34,22 @@ class SmartBirdBot:
         self._db = db
         self._app: Optional[Application] = None
 
+    def _is_authorised(self, update: Update) -> bool:
+        """Return True if the update originated from the configured chat_id.
+
+        Empty configured chat_id means “no restriction” (used for first-run
+        debugging only); we log a warning if the bot is left in that mode.
+        """
+        if not self._chat_id:
+            return True
+        chat = update.effective_chat
+        if chat is None:
+            return False
+        try:
+            return str(chat.id) == str(self._chat_id)
+        except Exception:
+            return False
+
     # ------------------------------------------------------------------ #
     # Lifecycle
     # ------------------------------------------------------------------ #
@@ -103,6 +119,12 @@ class SmartBirdBot:
         """Respond to /start."""
         if update.effective_message is None:
             return
+        if not self._is_authorised(update):
+            log.info(
+                '/start from unauthorized chat %s ignored',
+                update.effective_chat.id if update.effective_chat else '?',
+            )
+            return
         await update.effective_message.reply_text(
             "Smart Bird monitoring active. You'll receive alerts when "
             "the three-layer signal aligns."
@@ -113,6 +135,12 @@ class SmartBirdBot:
     ) -> None:
         """Respond to /status with live pipeline counters."""
         if update.effective_message is None:
+            return
+        if not self._is_authorised(update):
+            log.info(
+                '/status from unauthorized chat %s ignored',
+                update.effective_chat.id if update.effective_chat else '?',
+            )
             return
         total = await self._db.count_total_tokens()
         layer1 = await self._db.count_by_status('layer1')
@@ -137,6 +165,12 @@ class SmartBirdBot:
     ) -> None:
         """Respond to /watchlist with the current pipeline state."""
         if update.effective_message is None:
+            return
+        if not self._is_authorised(update):
+            log.info(
+                '/watchlist from unauthorized chat %s ignored',
+                update.effective_chat.id if update.effective_chat else '?',
+            )
             return
         tokens = await self._db.get_tracked_tokens(
             ['layer1', 'layer2', 'alerted'],

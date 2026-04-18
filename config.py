@@ -6,38 +6,67 @@ these in one place makes tuning from ``.env`` trivial and keeps the rest of the
 codebase declarative.
 """
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-def _env_int(name: str, default: int) -> int:
+def _env_int(name: str, default: int, min_value: Optional[int] = None,
+             max_value: Optional[int] = None) -> int:
     raw = os.getenv(name)
     if not raw:
         return default
     try:
-        return int(raw)
+        value = int(raw)
     except ValueError:
         import logging
         logging.getLogger('smart-bird.config').warning(
             'Invalid int for %s=%r, falling back to %d', name, raw, default,
         )
         return default
+    if min_value is not None and value < min_value:
+        import logging
+        logging.getLogger('smart-bird.config').warning(
+            '%s=%d below min %d, clamping', name, value, min_value,
+        )
+        return min_value
+    if max_value is not None and value > max_value:
+        import logging
+        logging.getLogger('smart-bird.config').warning(
+            '%s=%d above max %d, clamping', name, value, max_value,
+        )
+        return max_value
+    return value
 
 
-def _env_float(name: str, default: float) -> float:
+def _env_float(name: str, default: float, min_value: Optional[float] = None,
+               max_value: Optional[float] = None) -> float:
     raw = os.getenv(name)
     if not raw:
         return default
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
         import logging
         logging.getLogger('smart-bird.config').warning(
             'Invalid float for %s=%r, falling back to %f', name, raw, default,
         )
         return default
+    if min_value is not None and value < min_value:
+        import logging
+        logging.getLogger('smart-bird.config').warning(
+            '%s=%f below min %f, clamping', name, value, min_value,
+        )
+        return min_value
+    if max_value is not None and value > max_value:
+        import logging
+        logging.getLogger('smart-bird.config').warning(
+            '%s=%f above max %f, clamping', name, value, max_value,
+        )
+        return max_value
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +81,7 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
 # ---------------------------------------------------------------------------
 # Layer 1 — Graduation predictor
 # ---------------------------------------------------------------------------
-GRADUATION_SCORE_THRESHOLD = _env_int('GRADUATION_SCORE_THRESHOLD', 65)
+GRADUATION_SCORE_THRESHOLD = _env_int('GRADUATION_SCORE_THRESHOLD', 65, min_value=0, max_value=100)
 MIN_HOLDER_COUNT = 100
 MIN_BUY_PRESSURE = 0.60  # 60%
 
@@ -66,14 +95,14 @@ SMART_MONEY_WALLETS = [w.strip() for w in _raw_wallets.split(',') if w.strip()]
 # ---------------------------------------------------------------------------
 # Layer 3 — Liquidity stress monitor
 # ---------------------------------------------------------------------------
-LIQUIDITY_DROP_THRESHOLD = _env_float('LIQUIDITY_DROP_THRESHOLD', 0.20)  # 20%
+LIQUIDITY_DROP_THRESHOLD = _env_float('LIQUIDITY_DROP_THRESHOLD', 0.20, min_value=0.0, max_value=1.0)  # 20%
 LIQUIDITY_WINDOW_SECONDS = 5 * 60  # 5 min
 LP_CONCENTRATION_THRESHOLD = 0.80  # 80%
 
 # ---------------------------------------------------------------------------
 # Polling cadence
 # ---------------------------------------------------------------------------
-POLL_INTERVAL_SECONDS = _env_int('POLL_INTERVAL_SECONDS', 60)
+POLL_INTERVAL_SECONDS = _env_int('POLL_INTERVAL_SECONDS', 60, min_value=10, max_value=3600)
 LIQUIDITY_POLL_SECONDS = 60
 SMART_MONEY_POLL_SECONDS = 45
 
@@ -93,3 +122,29 @@ API_CALLS_LOG = os.getenv('API_CALLS_LOG', '/data/api_calls.log')
 # ---------------------------------------------------------------------------
 MAX_RETRIES = 5
 BASE_BACKOFF_SECONDS = 1.5
+
+import logging
+
+log_cfg = logging.getLogger('smart-bird.config')
+
+
+def validate() -> None:
+    """Verify required credentials are present; abort startup otherwise.
+
+    Telegram delivery and the smart-money tracker both fail closed when
+    misconfigured (with warnings), but a missing Birdeye API key produces
+    nothing but 401s forever and is never useful in production.
+    """
+    if not BIRDEYE_API_KEY:
+        raise SystemExit(
+            'BIRDEYE_API_KEY is missing. Set it in .env (see .env.example) '
+            'before starting Smart Bird.'
+        )
+    if not TELEGRAM_BOT_TOKEN:
+        log_cfg.warning(
+            'TELEGRAM_BOT_TOKEN is empty — the bot will run but cannot deliver alerts.'
+        )
+    if not TELEGRAM_CHAT_ID:
+        log_cfg.warning(
+            'TELEGRAM_CHAT_ID is empty — alerts will be skipped at send time.'
+        )

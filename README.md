@@ -17,7 +17,7 @@ A unified signal pipeline that stacks three distinct on-chain intelligence layer
 Smart Bird runs three asynchronous loops in parallel and stitches them into two distinct alert types:
 
 1. **Layer 1 — Graduation Predictor.** Scans newly-listed Solana tokens and scores them 0–100 on volume velocity, holder base, buy pressure and short-window price trajectory. Honeypot / mintable / top-holder-concentrated rugs are filtered out before scoring.
-2. **Layer 2 — Smart Money Tracker.** Watches the recent swap history of every Layer-1 passer for entries by a curated alpha-wallet set (configurable via env). Best-effort validates the wallet still holds the token via portfolio lookup before confirming — if Birdeye returns an unexpected payload, the on-chain trade itself is treated as evidence (logged).
+2. **Layer 2 — Smart Money Tracker.** Watches the recent swap history of every Layer-1 passer for entries by a curated alpha-wallet set (configurable via env). Best-effort validates the wallet still holds the token via portfolio lookup before confirming — if Birdeye returns an unexpected payload or fails the lookup, the on-chain trade itself is treated as evidence (logged).
 3. **Layer 3 — Liquidity Stress Monitor.** Snapshots liquidity and LP concentration every minute for every active token. Powers **independent exit alerts** whenever liquidity drops >20% in a 5-minute window or the top-10 holder share exceeds 80%.
 
 **Entry alert** fires when **Layer 1 + Layer 2** both pass for the same token. Layer 3 then takes a fresh liquidity snapshot for the alert body and gates delivery on its success — if liquidity can't be read, the entry alert is held for the next dispatcher pass and not lost. **Exit alert** fires from Layer 3 alone whenever a watched token's liquidity collapses or concentration spikes. Both alert types are deduped on `(address, alert_type)` over a rolling 1-hour window.
@@ -103,7 +103,14 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Local runs honour the same `.env` file. You may want to override the defaults for on-disk paths, e.g.:
+Local runs honour the same `.env` file. The default `DB_PATH` and `API_CALLS_LOG` point at `/data/...` for the Docker volume — if you're not running in the container you **must** override them (the `/data` directory normally requires root). Either set them in your `.env`:
+
+```
+DB_PATH=./smart-bird.db
+API_CALLS_LOG=./api_calls.log
+```
+
+…or pass them inline:
 
 ```bash
 DB_PATH=./smart-bird.db API_CALLS_LOG=./api_calls.log python main.py

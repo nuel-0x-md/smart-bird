@@ -98,7 +98,7 @@ async def layer2_loop(
                 address = t.get('address')
                 if not address:
                     continue
-                if await db.was_alerted_recently(
+                if await db.was_attempted_recently(
                     address, 'entry', REENQUEUE_COOLDOWN_SECONDS,
                 ):
                     continue
@@ -160,6 +160,7 @@ async def layer3_loop(
                     stress['lp_concentration'],
                     triggered_by=stress.get('triggered_by', 'both'),
                 )
+                await db.record_alert_attempt(address, 'exit')
                 if await bot.send_alert(msg):
                     await db.record_alert_sent(address, 'exit')
                     await db.mark_exited(address)
@@ -214,6 +215,7 @@ async def alert_dispatcher(
                 token_for_msg, score, breakdown, smart_money,
                 {'current_liquidity': liq['liquidity_usd']},
             )
+            await db.record_alert_attempt(address, 'entry')
             if await bot.send_alert(msg):
                 await db.record_alert_sent(address, 'entry')
                 await db.mark_alerted(address)
@@ -252,6 +254,8 @@ async def main() -> None:
     bot: SmartBirdBot | None = None
     tasks: list[asyncio.Task] = []
     try:
+        from config import validate as validate_config
+        validate_config()
         await db.init()
         predictor = GraduationPredictor(client, db)
         tracker = SmartMoneyTracker(client, db, SMART_MONEY_WALLETS)
