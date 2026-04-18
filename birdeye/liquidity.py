@@ -155,7 +155,12 @@ def _extract_liquidity(overview: dict) -> Optional[float]:
         if isinstance(val, (int, float)):
             return float(val)
         if isinstance(val, dict):
-            nested = val.get('usd') or val.get('USD') or val.get('value')
+            nested = None
+            for nkey in ('usd', 'USD', 'value'):
+                cand = val.get(nkey)
+                if cand is not None:
+                    nested = cand
+                    break
             if nested is not None:
                 try:
                     return float(nested)

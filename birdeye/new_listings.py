@@ -36,6 +36,26 @@ from db.database import Database
 log = logging.getLogger('smart-bird.layer1')
 
 
+def _safe_float(val, default: float = 0.0) -> float:
+    """Coerce ``val`` to float, returning ``default`` on any failure."""
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(val, default: int = 0) -> int:
+    """Coerce ``val`` to int, returning ``default`` on any failure."""
+    if val is None:
+        return default
+    try:
+        return int(float(val))  # accept '123.0' style strings
+    except (TypeError, ValueError):
+        return default
+
+
 class GraduationPredictor:
     """Scores freshly-listed tokens for Pump.fun graduation likelihood."""
 
@@ -117,23 +137,20 @@ class GraduationPredictor:
         # Token overview drives holders, price, market cap and trajectory.
         # Birdeye endpoint: GET /defi/token_overview
         overview = await self.client.get_token_overview(address) or {}
-        holders = int(overview.get('holder') or 0)
-        price = float(overview.get('price') or 0.0)
-        market_cap = float(
+        holders = _safe_int(overview.get('holder'))
+        price = _safe_float(overview.get('price'))
+        market_cap = _safe_float(
             overview.get('mc')
             or overview.get('marketCap')
             or overview.get('realMc')
-            or 0.0,
         )
-        change_1h = float(
+        change_1h = _safe_float(
             overview.get('priceChange1h')
             or overview.get('priceChange1hPercent')
-            or 0.0,
         )
-        change_30m = float(
+        change_30m = _safe_float(
             overview.get('priceChange30m')
             or overview.get('priceChange30mPercent')
-            or 0.0,
         )
         breakdown['holders'] = holders
         breakdown['price'] = price
@@ -222,6 +239,14 @@ class GraduationPredictor:
 
         denom = max(prior_avg * 5, 1.0)
         ratio = recent_5m_vol / denom
+
+        # Anti-game cap: when the trailing baseline is essentially zero, the
+        # ratio is meaningless — a $5 trade can produce ratio>>3. Require
+        # absolute recent volume to clear a floor before the top tiers unlock.
+        BASELINE_MIN_USD = 100.0
+        weak_baseline = prior_avg * 5 < BASELINE_MIN_USD
+        if weak_baseline and recent_5m_vol < BASELINE_MIN_USD:
+            return 5, ratio
 
         if ratio >= 3:
             score = 25

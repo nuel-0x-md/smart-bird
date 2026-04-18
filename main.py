@@ -119,8 +119,13 @@ async def layer3_loop(
                     stress['window_minutes'],
                     stress['lp_concentration'],
                 )
-                await bot.send_alert(msg)
-                await db.record_alert_sent(address, 'exit')
+                if await bot.send_alert(msg):
+                    await db.record_alert_sent(address, 'exit')
+                else:
+                    log.warning(
+                        'Layer 3 exit alert send failed for %s; will retry next loop',
+                        address,
+                    )
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -167,9 +172,14 @@ async def alert_dispatcher(
                 token_for_msg, score, breakdown, smart_money,
                 {'current_liquidity': liq['liquidity_usd']},
             )
-            await bot.send_alert(msg)
-            await db.record_alert_sent(address, 'entry')
-            await db.mark_alerted(address)
+            if await bot.send_alert(msg):
+                await db.record_alert_sent(address, 'entry')
+                await db.mark_alerted(address)
+            else:
+                log.warning(
+                    'Entry alert send failed for %s; leaving status at layer2 for retry',
+                    address,
+                )
         except asyncio.CancelledError:
             raise
         except Exception as e:

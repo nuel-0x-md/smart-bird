@@ -72,11 +72,16 @@ class SmartBirdBot:
     # ------------------------------------------------------------------ #
     # Outbound
     # ------------------------------------------------------------------ #
-    async def send_alert(self, message: str) -> None:
-        """Deliver a Markdown-formatted alert to the configured chat."""
+    async def send_alert(self, message: str) -> bool:
+        """Deliver a Markdown-formatted alert to the configured chat.
+
+        Returns True if Telegram accepted the message, False on any failure
+        (including 'bot not configured'). Callers should only mark the alert
+        as recorded when this returns True so failed sends are retried.
+        """
         if self._app is None or not self._chat_id:
             log.info('Alert skipped (bot not configured): %s', message.splitlines()[0])
-            return
+            return False
         try:
             await self._app.bot.send_message(
                 chat_id=self._chat_id,
@@ -84,8 +89,10 @@ class SmartBirdBot:
                 parse_mode=ParseMode.MARKDOWN,
                 disable_web_page_preview=False,
             )
+            return True
         except Exception:
             log.exception('Failed to send Telegram alert')
+            return False
 
     # ------------------------------------------------------------------ #
     # Command handlers

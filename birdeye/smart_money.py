@@ -116,6 +116,11 @@ class SmartMoneyTracker:
             return True
         items = portfolio.get('items') if isinstance(portfolio, dict) else None
         if not isinstance(items, list):
+            log.warning(
+                'Layer 2: portfolio for %s lacks a list "items" field; '
+                'proceeding on trade evidence',
+                wallet,
+            )
             return True
         for holding in items:
             if not isinstance(holding, dict):

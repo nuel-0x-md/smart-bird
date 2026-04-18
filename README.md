@@ -156,7 +156,7 @@ LP concentration: 87%
 
 ## 📑 API usage proof
 
-Every Birdeye call — successful, failed, rate-limited, timed out — is appended to `api_calls.log` on one line:
+Every logical Birdeye call writes exactly one audit line to `api_calls.log` once it resolves — success, non-retryable failure, or final retry exhaustion. Retried 429s and 5xx responses do not produce duplicate lines:
 
 ```
 [2026-04-18T21:10:05.123456+00:00] [GET /defi/token_overview] [200] [So11...1112]

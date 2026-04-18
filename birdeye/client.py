@@ -115,15 +115,17 @@ class BirdeyeClient:
                             return None
                         return payload.get('data')
                     if resp.status == 429 or 500 <= resp.status < 600:
-                        backoff = BASE_BACKOFF_SECONDS * (2 ** attempt) + random.random()
-                        await asyncio.sleep(backoff)
+                        if attempt < MAX_RETRIES - 1:
+                            backoff = BASE_BACKOFF_SECONDS * (2 ** attempt) + random.random()
+                            await asyncio.sleep(backoff)
                         continue
                     # Non-retryable non-200 — log and bail.
                     self._log(path, resp.status, token_for_log)
                     return None
             except (aiohttp.ClientError, asyncio.TimeoutError):
                 last_status = 0
-                await asyncio.sleep(BASE_BACKOFF_SECONDS * (2 ** attempt) + random.random())
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(BASE_BACKOFF_SECONDS * (2 ** attempt) + random.random())
         # Exhausted retries.
         self._log(path, last_status, token_for_log)
         return None

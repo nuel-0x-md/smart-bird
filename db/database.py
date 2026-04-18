@@ -167,6 +167,7 @@ class Database:
                 UPDATE tracked_tokens
                    SET status = 'layer1', layer1_passed_at = ?
                  WHERE address = ?
+                   AND status NOT IN ('layer2', 'alerted', 'exited')
                 """,
                 (int(time.time()), address),
             )
@@ -182,6 +183,7 @@ class Database:
                        layer2_confirmed_at = ?,
                        smart_money_wallet = ?
                  WHERE address = ?
+                   AND status NOT IN ('alerted', 'exited')
                 """,
                 (int(time.time()), wallet, address),
             )
