@@ -19,6 +19,7 @@ from telegram.ext import (
 )
 
 from config import ALERT_DEDUP_WINDOW_SECONDS
+from bot.formatter import _md_escape
 from db.database import Database
 
 log = logging.getLogger('smart-bird.bot')
@@ -140,7 +141,7 @@ class SmartBirdBot:
             return
         lines = ['*Smart Bird watchlist*']
         for t in tokens[:25]:
-            symbol = t.get('symbol') or '???'
+            symbol = _md_escape(t.get('symbol') or '???')
             status = t.get('status') or '?'
             score = t.get('graduation_score')
             score_s = f'{score}/100' if score is not None else 'n/a'

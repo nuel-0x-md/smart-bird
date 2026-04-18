@@ -196,47 +196,67 @@ async def smoke_test(client: BirdeyeClient) -> None:
 async def main() -> None:
     """Wire everything together and run until a termination signal arrives."""
     db = Database()
-    await db.init()
     client = BirdeyeClient()
-    predictor = GraduationPredictor(client, db)
-    tracker = SmartMoneyTracker(client, db, SMART_MONEY_WALLETS)
-    monitor = LiquidityMonitor(client, db)
-    bot = SmartBirdBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, db)
+    bot: SmartBirdBot | None = None
+    tasks: list[asyncio.Task] = []
+    try:
+        await db.init()
+        predictor = GraduationPredictor(client, db)
+        tracker = SmartMoneyTracker(client, db, SMART_MONEY_WALLETS)
+        monitor = LiquidityMonitor(client, db)
+        bot = SmartBirdBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, db)
 
-    await bot.start()
-    await smoke_test(client)
-    log.info('Smart Bird bot started — monitoring Solana for graduation signals')
+        await bot.start()
+        await smoke_test(client)
+        log.info('Smart Bird bot started — monitoring Solana for graduation signals')
 
-    signal_queue: asyncio.Queue = asyncio.Queue()
-    stop_event = asyncio.Event()
+        if not SMART_MONEY_WALLETS:
+            log.warning(
+                'SMART_MONEY_WALLETS is empty — Layer 2 is a no-op and no entry '
+                'alerts will fire. Set SMART_MONEY_WALLETS in your .env to enable.'
+            )
 
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal_queue: asyncio.Queue = asyncio.Queue()
+        stop_event = asyncio.Event()
+
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, stop_event.set)
+            except NotImplementedError:
+                # Some platforms (Windows) can't attach signal handlers — fall back
+                # to the default KeyboardInterrupt path for SIGINT.
+                pass
+
+        tasks = [
+            asyncio.create_task(layer1_loop(predictor, db, signal_queue)),
+            asyncio.create_task(layer2_loop(tracker, db, signal_queue)),
+            asyncio.create_task(layer3_loop(monitor, db, bot)),
+            asyncio.create_task(
+                alert_dispatcher(signal_queue, db, monitor, bot, predictor)
+            ),
+        ]
+        await stop_event.wait()
+        log.info('Shutdown signal received — cleaning up...')
+    finally:
+        for t in tasks:
+            t.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if bot is not None:
+            try:
+                await bot.stop()
+            except Exception:
+                log.exception('Error during bot shutdown')
         try:
-            loop.add_signal_handler(sig, stop_event.set)
-        except NotImplementedError:
-            # Some platforms (Windows) can't attach signal handlers — fall back
-            # to the default KeyboardInterrupt path for SIGINT.
-            pass
-
-    tasks = [
-        asyncio.create_task(layer1_loop(predictor, db, signal_queue)),
-        asyncio.create_task(layer2_loop(tracker, db, signal_queue)),
-        asyncio.create_task(layer3_loop(monitor, db, bot)),
-        asyncio.create_task(
-            alert_dispatcher(signal_queue, db, monitor, bot, predictor)
-        ),
-    ]
-
-    await stop_event.wait()
-    log.info('Shutdown signal received — cleaning up...')
-    for t in tasks:
-        t.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
-    await bot.stop()
-    await client.aclose()
-    await db.aclose()
-    log.info('Smart Bird stopped cleanly')
+            await client.aclose()
+        except Exception:
+            log.exception('Error closing Birdeye client')
+        try:
+            await db.aclose()
+        except Exception:
+            log.exception('Error closing database')
+        log.info('Smart Bird stopped cleanly')
 
 
 if __name__ == '__main__':

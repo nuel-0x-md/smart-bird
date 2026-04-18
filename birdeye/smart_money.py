@@ -107,7 +107,12 @@ class SmartMoneyTracker:
         # Birdeye endpoint: GET /v1/wallet/token_list
         portfolio = await self.client.get_wallet_portfolio(wallet)
         if not portfolio:
-            # If we can't verify, be permissive — the trade itself is fresh evidence.
+            # Portfolio lookup failed — the on-chain trade is itself fresh evidence,
+            # so we proceed with confirmation but flag the bypass for observability.
+            log.warning(
+                'Layer 2: portfolio lookup failed for %s; proceeding on trade evidence',
+                wallet,
+            )
             return True
         items = portfolio.get('items') if isinstance(portfolio, dict) else None
         if not isinstance(items, list):

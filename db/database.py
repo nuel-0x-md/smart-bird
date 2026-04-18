@@ -138,8 +138,8 @@ class Database:
                 INSERT INTO tracked_tokens (address, symbol, name, first_seen, status)
                 VALUES (?, ?, ?, ?, 'new')
                 ON CONFLICT(address) DO UPDATE SET
-                    symbol = COALESCE(excluded.symbol, tracked_tokens.symbol),
-                    name = COALESCE(excluded.name, tracked_tokens.name)
+                    symbol = COALESCE(NULLIF(excluded.symbol, ''), tracked_tokens.symbol),
+                    name = COALESCE(NULLIF(excluded.name, ''), tracked_tokens.name)
                 """,
                 (address, symbol, name, int(first_seen)),
             )

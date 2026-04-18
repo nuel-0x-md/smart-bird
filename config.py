@@ -11,6 +11,35 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        import logging
+        logging.getLogger('smart-bird.config').warning(
+            'Invalid int for %s=%r, falling back to %d', name, raw, default,
+        )
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        import logging
+        logging.getLogger('smart-bird.config').warning(
+            'Invalid float for %s=%r, falling back to %f', name, raw, default,
+        )
+        return default
+
+
 # ---------------------------------------------------------------------------
 # Credentials
 # ---------------------------------------------------------------------------
@@ -23,7 +52,7 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
 # ---------------------------------------------------------------------------
 # Layer 1 — Graduation predictor
 # ---------------------------------------------------------------------------
-GRADUATION_SCORE_THRESHOLD = int(os.getenv('GRADUATION_SCORE_THRESHOLD', '65'))
+GRADUATION_SCORE_THRESHOLD = _env_int('GRADUATION_SCORE_THRESHOLD', 65)
 MIN_HOLDER_COUNT = 100
 MIN_BUY_PRESSURE = 0.60  # 60%
 
@@ -32,38 +61,19 @@ MIN_BUY_PRESSURE = 0.60  # 60%
 # ---------------------------------------------------------------------------
 SMART_MONEY_LOOKBACK_MINUTES = 15
 _raw_wallets = os.getenv('SMART_MONEY_WALLETS', '')
-DEFAULT_SMART_MONEY_WALLETS = [
-    # Publicly known alpha wallets (seed list — override via env).
-    # These are example/illustrative addresses; replace with your own curated list.
-    'AAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    'BBbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-    'CCccccccccccccccccccccccccccccccccccccccccccc',
-    'DDddddddddddddddddddddddddddddddddddddddddddd',
-    'EEeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-    'FFffffffffffffffffffffffffffffffffffffffffff',
-    'GGgggggggggggggggggggggggggggggggggggggggggg',
-    'HHhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh',
-    'JJjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj',
-    'KKkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk',
-    'LLllllllllllllllllllllllllllllllllllllllllll',
-    'MMmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
-]
-SMART_MONEY_WALLETS = (
-    [w.strip() for w in _raw_wallets.split(',') if w.strip()]
-    if _raw_wallets else DEFAULT_SMART_MONEY_WALLETS
-)
+SMART_MONEY_WALLETS = [w.strip() for w in _raw_wallets.split(',') if w.strip()]
 
 # ---------------------------------------------------------------------------
 # Layer 3 — Liquidity stress monitor
 # ---------------------------------------------------------------------------
-LIQUIDITY_DROP_THRESHOLD = float(os.getenv('LIQUIDITY_DROP_THRESHOLD', '0.20'))  # 20%
+LIQUIDITY_DROP_THRESHOLD = _env_float('LIQUIDITY_DROP_THRESHOLD', 0.20)  # 20%
 LIQUIDITY_WINDOW_SECONDS = 5 * 60  # 5 min
 LP_CONCENTRATION_THRESHOLD = 0.80  # 80%
 
 # ---------------------------------------------------------------------------
 # Polling cadence
 # ---------------------------------------------------------------------------
-POLL_INTERVAL_SECONDS = int(os.getenv('POLL_INTERVAL_SECONDS', '60'))
+POLL_INTERVAL_SECONDS = _env_int('POLL_INTERVAL_SECONDS', 60)
 LIQUIDITY_POLL_SECONDS = 60
 SMART_MONEY_POLL_SECONDS = 45
 

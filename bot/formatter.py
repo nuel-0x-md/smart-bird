@@ -6,6 +6,20 @@ missing Birdeye fields don't produce ``KeyError`` at alert-fire time.
 from __future__ import annotations
 
 
+_MD_ESCAPE = str.maketrans({
+    '_': r'\_',
+    '*': r'\*',
+    '[': r'\[',
+    ']': r'\]',
+    '`': r'\`',
+})
+
+
+def _md_escape(value: str) -> str:
+    """Escape characters that legacy Telegram Markdown treats specially."""
+    return (value or '').translate(_MD_ESCAPE)
+
+
 def format_entry_alert(
     token: dict,
     score: int,
@@ -25,7 +39,7 @@ def format_entry_alert(
     liquidity:    Layer 3 snapshot — ``current_liquidity`` in USD.
     """
     address = token.get('address', '')
-    symbol = token.get('symbol') or '???'
+    symbol = _md_escape(token.get('symbol') or '???')
     price = float(token.get('price') or 0.0)
     market_cap = float(token.get('market_cap') or 0.0)
 
@@ -33,6 +47,8 @@ def format_entry_alert(
     short_wallet = (
         f'{wallet[:4]}...{wallet[-4:]}' if len(wallet) >= 8 else (wallet or 'unknown')
     )
+    # wallet: escape the short form, not the raw address used elsewhere.
+    short_wallet = _md_escape(short_wallet)
     minutes_ago = int(smart_money.get('minutes_ago') or 0)
 
     current_liquidity = float(liquidity.get('current_liquidity') or 0.0)
@@ -64,7 +80,7 @@ def format_exit_alert(
     lp_concentration: float,
 ) -> str:
     """Build the exit alert message."""
-    symbol = symbol or '???'
+    symbol = _md_escape(symbol or '???')
     try:
         drop_pct_f = float(drop_pct)
     except (TypeError, ValueError):

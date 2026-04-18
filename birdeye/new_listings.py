@@ -183,8 +183,13 @@ class GraduationPredictor:
             return False
         top10 = sec.get('top10HolderPercent')
         try:
-            if top10 is not None and float(top10) > 0.80:
-                return False
+            if top10 is not None:
+                top10_f = float(top10)
+                # Birdeye sometimes returns 0–1, sometimes 0–100; normalise to 0–1.
+                if top10_f > 1.0:
+                    top10_f = top10_f / 100.0
+                if top10_f > 0.80:
+                    return False
         except (TypeError, ValueError):
             pass
         return True
@@ -194,7 +199,7 @@ class GraduationPredictor:
         # Birdeye endpoint: GET /defi/ohlcv
         candles = await self.client.get_ohlcv(address, type_='1m', minutes_back=30)
         if not candles or len(candles) < 10:
-            return 5, 0.0
+            return 0, 0.0
 
         # Candles are typically returned oldest-first; normalise just in case.
         candles = sorted(candles, key=lambda c: c.get('unixTime') or c.get('time') or 0)
@@ -276,6 +281,8 @@ class GraduationPredictor:
             return 18
         if change_30m > 0:
             return 12
+        # Tokens with zero price movement still get a small floor — absence of data
+        # is not the same as bearish action.
         return 5
 
 

@@ -14,13 +14,13 @@ A unified signal pipeline that stacks three distinct on-chain intelligence layer
 
 ## 🧠 What it does
 
-Smart Bird runs three asynchronous loops in parallel and fires a Telegram alert **only when all three align**:
+Smart Bird runs three asynchronous loops in parallel and stitches them into two distinct alert types:
 
 1. **Layer 1 — Graduation Predictor.** Scans newly-listed Solana tokens and scores them 0–100 on volume velocity, holder base, buy pressure and short-window price trajectory. Honeypot / mintable / top-holder-concentrated rugs are filtered out before scoring.
 2. **Layer 2 — Smart Money Tracker.** Watches the recent swap history of every Layer-1 passer for entries by a curated alpha-wallet set (configurable via env). Validates the wallet still holds the token via portfolio lookup before confirming.
-3. **Layer 3 — Liquidity Stress Monitor.** Snapshots liquidity and LP concentration every minute for every active token. Fires **independent** exit alerts whenever liquidity drops >20% in a 5-minute window or the top-10 holder share exceeds 80%.
+3. **Layer 3 — Liquidity Stress Monitor.** Snapshots liquidity and LP concentration every minute for every active token. Powers **independent exit alerts** whenever liquidity drops >20% in a 5-minute window or the top-10 holder share exceeds 80%.
 
-Alerts are deduped on `(address, alert_type)` over a **1-hour** window so a single token can't spam the channel.
+**Entry alert** fires when **Layer 1 + Layer 2** both pass for the same token (Layer 3 then runs a fresh liquidity snapshot for the alert body but is not a gate). **Exit alert** fires from Layer 3 alone whenever a watched token's liquidity collapses or concentration spikes. Both alert types are deduped on `(address, alert_type)` over a rolling 1-hour window.
 
 ---
 
@@ -91,6 +91,8 @@ cp .env.example .env
 docker compose up --build -d
 docker compose logs -f smart-bird
 ```
+
+> **Layer 2 requires `SMART_MONEY_WALLETS`** — a comma-separated list of Solana wallet addresses you want to track. Without it, Layer 2 is a no-op and no entry alerts will fire (exit alerts still work).
 
 The SQLite database and the `api_calls.log` file are persisted in the named volume `smart-bird-data` mounted at `/data`.
 

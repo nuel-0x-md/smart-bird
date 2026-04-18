@@ -105,30 +105,27 @@ class BirdeyeClient:
             try:
                 async with session.get(url, params=params) as resp:
                     last_status = resp.status
+                    if resp.status == 200:
+                        self._log(path, 200, token_for_log)
+                        try:
+                            payload = await resp.json()
+                        except (aiohttp.ContentTypeError, ValueError):
+                            return None
+                        if not isinstance(payload, dict) or not payload.get('success', False):
+                            return None
+                        return payload.get('data')
+                    if resp.status == 429 or 500 <= resp.status < 600:
+                        backoff = BASE_BACKOFF_SECONDS * (2 ** attempt) + random.random()
+                        await asyncio.sleep(backoff)
+                        continue
+                    # Non-retryable non-200 — log and bail.
                     self._log(path, resp.status, token_for_log)
-                    if resp.status == 429:
-                        backoff = BASE_BACKOFF_SECONDS * (2 ** attempt) + random.random()
-                        await asyncio.sleep(backoff)
-                        continue
-                    if 500 <= resp.status < 600:
-                        backoff = BASE_BACKOFF_SECONDS * (2 ** attempt) + random.random()
-                        await asyncio.sleep(backoff)
-                        continue
-                    if resp.status != 200:
-                        return None
-                    try:
-                        payload = await resp.json()
-                    except (aiohttp.ContentTypeError, ValueError):
-                        return None
-                    if not isinstance(payload, dict) or not payload.get('success', False):
-                        return None
-                    return payload.get('data')
+                    return None
             except (aiohttp.ClientError, asyncio.TimeoutError):
-                self._log(path, 0, token_for_log)
+                last_status = 0
                 await asyncio.sleep(BASE_BACKOFF_SECONDS * (2 ** attempt) + random.random())
-        # Exhausted retries — note the final observed status code for the log.
-        if last_status in (0, 429) or 500 <= last_status < 600:
-            self._log(path, last_status or -1, token_for_log)
+        # Exhausted retries.
+        self._log(path, last_status, token_for_log)
         return None
 
     # ================================================================== #

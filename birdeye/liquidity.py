@@ -142,10 +142,25 @@ class LiquidityMonitor:
 
 
 def _extract_liquidity(overview: dict) -> Optional[float]:
-    """Read the USD liquidity figure from the overview payload."""
+    """Read the USD liquidity figure from the overview payload.
+
+    Birdeye is inconsistent here: ``token_overview`` may return ``liquidity``
+    as a flat USD float, or nest it as ``{'liquidity': {'usd': X}}``.
+    """
+    # Flat shapes first.
     for key in ('liquidity', 'liquidityUsd', 'liquidityUSD'):
         val = overview.get(key)
         if val is None:
+            continue
+        if isinstance(val, (int, float)):
+            return float(val)
+        if isinstance(val, dict):
+            nested = val.get('usd') or val.get('USD') or val.get('value')
+            if nested is not None:
+                try:
+                    return float(nested)
+                except (TypeError, ValueError):
+                    continue
             continue
         try:
             return float(val)
