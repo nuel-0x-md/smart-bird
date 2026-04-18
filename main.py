@@ -87,10 +87,15 @@ async def layer2_loop(
                     continue
                 hit = await tracker.check_token(address)
                 if hit:
-                    await db.mark_layer2_confirmed(address, hit['wallet'])
-                    await signal_queue.put(
-                        ('layer2', {'token': t, 'smart_money': hit})
-                    )
+                    if await db.mark_layer2_confirmed(address, hit['wallet']):
+                        await signal_queue.put(
+                            ('layer2', {'token': t, 'smart_money': hit})
+                        )
+                    else:
+                        log.info(
+                            'Layer 2: %s already past layer2 stage, skipping enqueue',
+                            address,
+                        )
 
             # Stuck layer2 tokens — re-enqueue if no recent successful alert.
             l2_tokens = await db.get_tracked_tokens(['layer2'])
@@ -198,6 +203,12 @@ async def alert_dispatcher(
             if await db.was_alerted_recently(
                 address, 'entry', ALERT_DEDUP_WINDOW_SECONDS,
             ):
+                continue
+
+            # Re-check status — the token may have exited between Layer 2
+            # confirmation and our turn at the queue.
+            current = await db.get_token(address)
+            if not current or current.get('status') in ('exited', 'alerted'):
                 continue
 
             liq = await monitor.snapshot(address)

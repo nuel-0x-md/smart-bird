@@ -102,7 +102,9 @@ class GraduationPredictor:
                 and holders >= MIN_HOLDER_COUNT
                 and buy_pressure >= MIN_BUY_PRESSURE
             ):
-                await self.db.mark_layer1_passed(address)
+                if not await self.db.mark_layer1_passed(address):
+                    # Already past Layer 1 — don't double-promote.
+                    continue
                 passed.append({
                     'address': address,
                     'symbol': symbol or breakdown.get('symbol', ''),
@@ -204,27 +206,35 @@ class GraduationPredictor:
         if bool(sec.get('isMintable')):
             return False
         top10 = sec.get('top10HolderPercent')
-        if top10 is not None:
-            try:
-                top10_f = float(top10)
-            except (TypeError, ValueError):
-                log.warning(
-                    'Layer 1: %s has unparseable top10HolderPercent=%r; dropping candidate',
-                    address, top10,
-                )
-                return False
-            # Birdeye sometimes returns 0–1, sometimes 0–100; normalise to 0–1.
-            if top10_f > 1.0:
-                top10_f = top10_f / 100.0
-            if top10_f > 0.80:
-                return False
+        if top10 is None:
+            log.warning(
+                'Layer 1: %s missing top10HolderPercent in security payload; dropping candidate',
+                address,
+            )
+            return False
+        try:
+            top10_f = float(top10)
+        except (TypeError, ValueError):
+            log.warning(
+                'Layer 1: %s has unparseable top10HolderPercent=%r; dropping candidate',
+                address, top10,
+            )
+            return False
+        # Birdeye sometimes returns 0–1, sometimes 0–100; normalise to 0–1.
+        if top10_f > 1.0:
+            top10_f = top10_f / 100.0
+        if top10_f > 0.80:
+            return False
         return True
 
     async def _score_volume_velocity(self, address: str) -> tuple[int, float]:
         """Compare last-5m volume vs the trailing 25m average."""
         # Birdeye endpoint: GET /defi/ohlcv
         candles = await self.client.get_ohlcv(address, type_='1m', minutes_back=30)
-        if not candles or len(candles) < 10:
+        # Need a meaningful trailing window before the ratio means anything.
+        # 25 candles = the prior-25m baseline + the recent 5 will overlap once
+        # we have 30, but we score conservatively below that.
+        if not candles or len(candles) < 25:
             return 0, 0.0
 
         # Candles are typically returned oldest-first; normalise just in case.

@@ -50,7 +50,18 @@ class BirdeyeClient:
         self._lock = asyncio.Lock()
         # Make sure the log directory exists so the very first append succeeds.
         log_dir = os.path.dirname(API_CALLS_LOG) or '.'
-        os.makedirs(log_dir, exist_ok=True)
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+        except (PermissionError, OSError) as e:
+            # Fall back to a process-local path so the bot doesn't die at import.
+            import logging
+            logging.getLogger('smart-bird.client').warning(
+                'Cannot create audit log dir %r (%s); falling back to ./api_calls.log',
+                log_dir, e,
+            )
+            # Re-bind the module-level constant so subsequent _log() calls work.
+            import config
+            config.API_CALLS_LOG = './api_calls.log'
 
     # ------------------------------------------------------------------ #
     # Session lifecycle

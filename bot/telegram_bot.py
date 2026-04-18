@@ -37,11 +37,11 @@ class SmartBirdBot:
     def _is_authorised(self, update: Update) -> bool:
         """Return True if the update originated from the configured chat_id.
 
-        Empty configured chat_id means “no restriction” (used for first-run
-        debugging only); we log a warning if the bot is left in that mode.
+        Fails closed: if no chat_id is configured, all command handlers
+        refuse input. Configure TELEGRAM_CHAT_ID in .env to enable commands.
         """
         if not self._chat_id:
-            return True
+            return False
         chat = update.effective_chat
         if chat is None:
             return False

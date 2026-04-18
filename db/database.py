@@ -116,6 +116,13 @@ class Database:
             self._conn.execute(sql, tuple(params))
             self._conn.commit()
 
+    def _execute_with_rowcount(self, sql: str, params: Iterable[Any] = ()) -> int:
+        with self._lock:
+            assert self._conn is not None, 'Database.init() was not called'
+            cur = self._conn.execute(sql, tuple(params))
+            self._conn.commit()
+            return cur.rowcount
+
     def _query_all(self, sql: str, params: Iterable[Any] = ()) -> list[dict]:
         with self._lock:
             assert self._conn is not None, 'Database.init() was not called'
@@ -168,10 +175,15 @@ class Database:
             )
         await asyncio.to_thread(_run)
 
-    async def mark_layer1_passed(self, address: str) -> None:
-        """Promote a token to the 'layer1' pipeline stage."""
-        def _run() -> None:
-            self._execute(
+    async def mark_layer1_passed(self, address: str) -> bool:
+        """Promote a token to the 'layer1' pipeline stage.
+
+        Returns True if the row was actually updated. Returns False if the
+        token has already moved past Layer 1 (layer2 / alerted / exited),
+        in which case the caller should NOT enqueue a duplicate downstream event.
+        """
+        def _run() -> int:
+            return self._execute_with_rowcount(
                 """
                 UPDATE tracked_tokens
                    SET status = 'layer1', layer1_passed_at = ?
@@ -180,12 +192,17 @@ class Database:
                 """,
                 (int(time.time()), address),
             )
-        await asyncio.to_thread(_run)
+        rowcount = await asyncio.to_thread(_run)
+        return rowcount > 0
 
-    async def mark_layer2_confirmed(self, address: str, wallet: str) -> None:
-        """Promote a token to 'layer2' and record which smart wallet entered."""
-        def _run() -> None:
-            self._execute(
+    async def mark_layer2_confirmed(self, address: str, wallet: str) -> bool:
+        """Promote a token to 'layer2' and record which smart wallet entered.
+
+        Returns True if the transition succeeded; False if the token has
+        already been alerted or exited.
+        """
+        def _run() -> int:
+            return self._execute_with_rowcount(
                 """
                 UPDATE tracked_tokens
                    SET status = 'layer2',
@@ -196,7 +213,8 @@ class Database:
                 """,
                 (int(time.time()), wallet, address),
             )
-        await asyncio.to_thread(_run)
+        rowcount = await asyncio.to_thread(_run)
+        return rowcount > 0
 
     async def mark_alerted(self, address: str) -> None:
         """Final pipeline stage — an entry alert has been dispatched."""
@@ -296,16 +314,24 @@ class Database:
         address: str,
         wallet: str,
         amount_usd: float | None,
+        entry_time: int | None = None,
     ) -> None:
-        """Log that ``wallet`` bought ``address`` at the current time."""
+        """Log that ``wallet`` bought ``address``.
+
+        ``entry_time`` should be the on-chain block unix timestamp when known
+        (preferred) so the layer2 retry path can compute an accurate
+        minutes-ago for the alert body. Falls back to the current time if the
+        caller couldn't extract the trade timestamp.
+        """
         def _run() -> None:
+            ts = int(entry_time) if entry_time else int(time.time())
             self._execute(
                 """
                 INSERT INTO smart_money_entries
                     (token_address, wallet, entry_time, amount_usd)
                 VALUES (?, ?, ?, ?)
                 """,
-                (address, wallet, int(time.time()), amount_usd),
+                (address, wallet, ts, amount_usd),
             )
         await asyncio.to_thread(_run)
 

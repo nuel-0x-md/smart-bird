@@ -82,7 +82,9 @@ class SmartMoneyTracker:
                 continue
 
             amount_usd = _extract_amount_usd(trade)
-            await self.db.record_smart_money_entry(address, wallet, amount_usd)
+            await self.db.record_smart_money_entry(
+                address, wallet, amount_usd, entry_time=ts,
+            )
 
             minutes_ago = max(0, (now - ts) // 60)
             display_wallet = self._wallets_original.get(wallet.lower(), wallet)
