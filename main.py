@@ -27,6 +27,7 @@ from config import (
     ALERT_DEDUP_WINDOW_SECONDS,
     LIQUIDITY_POLL_SECONDS,
     POLL_INTERVAL_SECONDS,
+    SECURITY_SCREEN_REQUIRED,
     SMART_MONEY_POLL_SECONDS,
     SMART_MONEY_WALLETS,
     TELEGRAM_BOT_TOKEN,
@@ -281,6 +282,13 @@ async def main() -> None:
             log.warning(
                 'SMART_MONEY_WALLETS is empty — Layer 2 is a no-op and no entry '
                 'alerts will fire. Set SMART_MONEY_WALLETS in your .env to enable.'
+            )
+
+        if not SECURITY_SCREEN_REQUIRED:
+            log.warning(
+                'SECURITY_SCREEN_REQUIRED=false — Layer 1 honeypot/mintable/rug '
+                'filtering is DISABLED. Only run in this mode when your Birdeye '
+                'tier lacks /defi/token_security access.'
             )
 
         signal_queue: asyncio.Queue = asyncio.Queue()
