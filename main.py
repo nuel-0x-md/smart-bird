@@ -69,11 +69,19 @@ async def layer2_loop(
     db: Database,
     signal_queue: 'asyncio.Queue[tuple[str, dict]]',
 ) -> None:
-    """For every Layer-1 token, check if smart money entered recently."""
+    """For every Layer-1 token, check if smart money entered recently.
+
+    Also re-enqueues tokens that already passed Layer 2 but have no
+    successful entry alert yet — these can get stuck if Telegram delivery
+    failed in the dispatcher. We throttle re-enqueues with a short cooldown
+    so a persistently-failing send doesn't flood the queue.
+    """
+    REENQUEUE_COOLDOWN_SECONDS = 120
     while True:
         try:
-            tokens = await db.get_tracked_tokens(['layer1'])
-            for t in tokens:
+            # Fresh layer1 candidates — promote them on smart-money hits.
+            l1_tokens = await db.get_tracked_tokens(['layer1'])
+            for t in l1_tokens:
                 address = t.get('address')
                 if not address:
                     continue
@@ -83,6 +91,38 @@ async def layer2_loop(
                     await signal_queue.put(
                         ('layer2', {'token': t, 'smart_money': hit})
                     )
+
+            # Stuck layer2 tokens — re-enqueue if no recent successful alert.
+            l2_tokens = await db.get_tracked_tokens(['layer2'])
+            for t in l2_tokens:
+                address = t.get('address')
+                if not address:
+                    continue
+                if await db.was_alerted_recently(
+                    address, 'entry', REENQUEUE_COOLDOWN_SECONDS,
+                ):
+                    continue
+                last_entry = await db.get_latest_smart_money_entry(address)
+                if not last_entry:
+                    continue
+                import time as _time
+                minutes_ago = max(
+                    0,
+                    (int(_time.time()) - int(last_entry.get('entry_time') or 0)) // 60,
+                )
+                smart_money = {
+                    'wallet': last_entry.get('wallet') or '',
+                    'entry_time': int(last_entry.get('entry_time') or 0),
+                    'amount_usd': last_entry.get('amount_usd'),
+                    'minutes_ago': int(minutes_ago),
+                }
+                log.info(
+                    'Layer 2: re-enqueueing stuck token %s for entry-alert retry',
+                    address,
+                )
+                await signal_queue.put(
+                    ('layer2', {'token': t, 'smart_money': smart_money})
+                )
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -118,9 +158,11 @@ async def layer3_loop(
                     stress['drop_pct'],
                     stress['window_minutes'],
                     stress['lp_concentration'],
+                    triggered_by=stress.get('triggered_by', 'both'),
                 )
                 if await bot.send_alert(msg):
                     await db.record_alert_sent(address, 'exit')
+                    await db.mark_exited(address)
                 else:
                     log.warning(
                         'Layer 3 exit alert send failed for %s; will retry next loop',

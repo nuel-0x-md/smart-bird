@@ -192,8 +192,13 @@ class GraduationPredictor:
         # Birdeye endpoint: GET /defi/token_security
         sec = await self.client.get_token_security(address)
         if not sec:
-            # If we can't verify, be permissive but log — don't silently drop.
-            return True
+            # Fail closed: a security check we can't run is no security at all.
+            # Log so flaky Birdeye responses don't silently kill the funnel.
+            log.warning(
+                'Layer 1: token_security lookup failed for %s; dropping candidate',
+                address,
+            )
+            return False
         if bool(sec.get('isHoneypot')):
             return False
         if bool(sec.get('isMintable')):

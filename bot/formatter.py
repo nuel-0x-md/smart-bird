@@ -78,8 +78,14 @@ def format_exit_alert(
     drop_pct: float,
     window_minutes: int,
     lp_concentration: float,
+    triggered_by: str = 'both',
 ) -> str:
-    """Build the exit alert message."""
+    """Build the exit alert message.
+
+    ``triggered_by`` is one of ``'liquidity_drop'``, ``'lp_concentration'``
+    or ``'both'`` and controls which lines are rendered so we don't show
+    a misleading 0% drop when only the concentration breach fired.
+    """
     symbol = _md_escape(symbol or '???')
     try:
         drop_pct_f = float(drop_pct)
@@ -89,8 +95,12 @@ def format_exit_alert(
         lp_f = float(lp_concentration)
     except (TypeError, ValueError):
         lp_f = 0.0
-    return (
-        f"🔴 *EXIT SIGNAL* — ${symbol}\n"
-        f"Liquidity dropped {drop_pct_f*100:.0f}% in {int(window_minutes)}min\n"
-        f"LP concentration: {lp_f*100:.0f}%"
-    )
+
+    lines = [f"🔴 *EXIT SIGNAL* — ${symbol}"]
+    if triggered_by in ('liquidity_drop', 'both'):
+        lines.append(
+            f"Liquidity dropped {drop_pct_f*100:.0f}% in {int(window_minutes)}min"
+        )
+    if triggered_by in ('lp_concentration', 'both'):
+        lines.append(f"LP concentration: {lp_f*100:.0f}%")
+    return '\n'.join(lines)

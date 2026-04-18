@@ -198,6 +198,19 @@ class Database:
             )
         await asyncio.to_thread(_run)
 
+    async def mark_exited(self, address: str) -> None:
+        """Final terminal stage — an exit alert has been dispatched.
+
+        Stops Layer 3 from continuing to snapshot a token whose pool has
+        already collapsed. Use after :meth:`record_alert_sent` for an exit alert.
+        """
+        def _run() -> None:
+            self._execute(
+                "UPDATE tracked_tokens SET status = 'exited' WHERE address = ?",
+                (address,),
+            )
+        await asyncio.to_thread(_run)
+
     async def get_tracked_tokens(self, status_filter: list[str]) -> list[dict]:
         """Return all tokens whose status matches one of the given values."""
         def _run() -> list[dict]:
@@ -281,6 +294,26 @@ class Database:
                 (address, wallet, int(time.time()), amount_usd),
             )
         await asyncio.to_thread(_run)
+
+    async def get_latest_smart_money_entry(self, address: str) -> Optional[dict]:
+        """Return the most recent smart_money_entries row for the given token.
+
+        Used by the entry-alert retry path to recreate the dispatcher payload
+        when a token is stuck in 'layer2' status because Telegram delivery
+        failed earlier.
+        """
+        def _run() -> Optional[dict]:
+            return self._query_one(
+                """
+                SELECT wallet, entry_time, amount_usd
+                  FROM smart_money_entries
+                 WHERE token_address = ?
+                 ORDER BY entry_time DESC
+                 LIMIT 1
+                """,
+                (address,),
+            )
+        return await asyncio.to_thread(_run)
 
     # ------------------------------------------------------------------ #
     # Alerts

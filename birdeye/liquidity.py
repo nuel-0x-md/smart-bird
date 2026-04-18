@@ -96,11 +96,19 @@ class LiquidityMonitor:
             1,
             int((newest['timestamp'] - oldest['timestamp']) // 60),
         )
+        if drop_breach and concentration_breach:
+            triggered_by = 'both'
+        elif drop_breach:
+            triggered_by = 'liquidity_drop'
+        else:
+            triggered_by = 'lp_concentration'
+
         log.info(
-            'Layer 3 STRESS token=%s drop_pct=%.2f lp_conc=%.2f window_min=%d',
-            address, drop_pct, current_lp_f, window_minutes,
+            'Layer 3 STRESS token=%s trigger=%s drop_pct=%.2f lp_conc=%.2f window_min=%d',
+            address, triggered_by, drop_pct, current_lp_f, window_minutes,
         )
         return {
+            'triggered_by': triggered_by,
             'drop_pct': drop_pct,
             'window_minutes': window_minutes,
             'lp_concentration': current_lp_f,

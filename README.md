@@ -17,10 +17,10 @@ A unified signal pipeline that stacks three distinct on-chain intelligence layer
 Smart Bird runs three asynchronous loops in parallel and stitches them into two distinct alert types:
 
 1. **Layer 1 — Graduation Predictor.** Scans newly-listed Solana tokens and scores them 0–100 on volume velocity, holder base, buy pressure and short-window price trajectory. Honeypot / mintable / top-holder-concentrated rugs are filtered out before scoring.
-2. **Layer 2 — Smart Money Tracker.** Watches the recent swap history of every Layer-1 passer for entries by a curated alpha-wallet set (configurable via env). Validates the wallet still holds the token via portfolio lookup before confirming.
+2. **Layer 2 — Smart Money Tracker.** Watches the recent swap history of every Layer-1 passer for entries by a curated alpha-wallet set (configurable via env). Best-effort validates the wallet still holds the token via portfolio lookup before confirming — if Birdeye returns an unexpected payload, the on-chain trade itself is treated as evidence (logged).
 3. **Layer 3 — Liquidity Stress Monitor.** Snapshots liquidity and LP concentration every minute for every active token. Powers **independent exit alerts** whenever liquidity drops >20% in a 5-minute window or the top-10 holder share exceeds 80%.
 
-**Entry alert** fires when **Layer 1 + Layer 2** both pass for the same token (Layer 3 then runs a fresh liquidity snapshot for the alert body but is not a gate). **Exit alert** fires from Layer 3 alone whenever a watched token's liquidity collapses or concentration spikes. Both alert types are deduped on `(address, alert_type)` over a rolling 1-hour window.
+**Entry alert** fires when **Layer 1 + Layer 2** both pass for the same token. Layer 3 then takes a fresh liquidity snapshot for the alert body and gates delivery on its success — if liquidity can't be read, the entry alert is held for the next dispatcher pass and not lost. **Exit alert** fires from Layer 3 alone whenever a watched token's liquidity collapses or concentration spikes. Both alert types are deduped on `(address, alert_type)` over a rolling 1-hour window.
 
 ---
 
@@ -162,7 +162,7 @@ Every logical Birdeye call writes exactly one audit line to `api_calls.log` once
 [2026-04-18T21:10:05.123456+00:00] [GET /defi/token_overview] [200] [So11...1112]
 ```
 
-The log is persisted to the `smart-bird-data` Docker volume (or `./api_calls.log` locally) and trivially satisfies the **BIP Sprint 1 minimum-50-calls** auditing requirement. Tail it live with:
+The log defaults to `/data/api_calls.log` so the Docker volume captures it without configuration. For local (non-Docker) runs, point it somewhere writable via env, e.g. `API_CALLS_LOG=./api_calls.log python main.py`. The log trivially satisfies the **BIP Sprint 1 minimum-50-calls** auditing requirement. Tail it live with:
 
 ```bash
 docker compose exec smart-bird tail -f /data/api_calls.log
