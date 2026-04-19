@@ -19,7 +19,6 @@ from telegram.ext import (
 )
 
 from config import ALERT_DEDUP_WINDOW_SECONDS
-from bot.formatter import _md_escape
 from db.database import Database
 
 log = logging.getLogger('smart-bird.bot')
@@ -34,11 +33,14 @@ class SmartBirdBot:
         self._db = db
         self._app: Optional[Application] = None
 
-    def _is_authorised(self, update: Update) -> bool:
-        """Return True if the update originated from the configured chat_id.
+    # ------------------------------------------------------------------ #
+    # Admin check (reserved for future commands; public ones don't use it)
+    # ------------------------------------------------------------------ #
+    def _is_admin(self, update: Update) -> bool:
+        """True if sender matches TELEGRAM_CHAT_ID (when configured).
 
-        Fails closed: if no chat_id is configured, all command handlers
-        refuse input. Configure TELEGRAM_CHAT_ID in .env to enable commands.
+        Public commands (/start /stop /status /watchlist) do NOT gate on this
+        — anyone can subscribe. Reserved for future admin-only endpoints.
         """
         if not self._chat_id:
             return False
@@ -63,6 +65,7 @@ class SmartBirdBot:
 
         self._app = ApplicationBuilder().token(self._token).build()
         self._app.add_handler(CommandHandler('start', self._cmd_start))
+        self._app.add_handler(CommandHandler('stop', self._cmd_stop))
         self._app.add_handler(CommandHandler('status', self._cmd_status))
         self._app.add_handler(CommandHandler('watchlist', self._cmd_watchlist))
 
@@ -89,71 +92,114 @@ class SmartBirdBot:
     # Outbound
     # ------------------------------------------------------------------ #
     async def send_alert(self, message: str) -> bool:
-        """Deliver a Markdown-formatted alert to the configured chat.
+        """Broadcast a Markdown alert to every subscriber.
 
-        Returns True if Telegram accepted the message, False on any failure
-        (including 'bot not configured'). Callers should only mark the alert
-        as recorded when this returns True so failed sends are retried.
+        Returns True if at least one subscriber received the message. Per-
+        recipient failures (blocked bot, deactivated account, etc.) are
+        logged but don't fail the broadcast — we only need one successful
+        send for the upstream retry logic to consider the alert delivered.
+
+        Falls back to the configured TELEGRAM_CHAT_ID when no subscribers
+        are registered yet, so first-boot single-user setups still work.
         """
-        if self._app is None or not self._chat_id:
+        if self._app is None:
             log.info('Alert skipped (bot not configured): %s', message.splitlines()[0])
             return False
-        try:
-            await self._app.bot.send_message(
-                chat_id=self._chat_id,
-                text=message,
-                parse_mode=ParseMode.MARKDOWN,
-                disable_web_page_preview=False,
-            )
-            return True
-        except Exception:
-            log.exception('Failed to send Telegram alert')
+
+        recipients = await self._db.get_subscribers()
+        if not recipients and self._chat_id:
+            recipients = [str(self._chat_id)]
+        if not recipients:
+            log.info('Alert skipped (no subscribers): %s', message.splitlines()[0])
             return False
 
+        any_success = False
+        stale: list[str] = []
+        for cid in recipients:
+            try:
+                await self._app.bot.send_message(
+                    chat_id=cid,
+                    text=message,
+                    parse_mode=ParseMode.MARKDOWN,
+                    disable_web_page_preview=False,
+                )
+                any_success = True
+            except Exception as e:
+                # Clean up chat IDs Telegram rejects permanently (blocked/deleted).
+                msg = str(e).lower()
+                if any(k in msg for k in ('forbidden', 'chat not found', 'user is deactivated', 'bot was blocked')):
+                    stale.append(cid)
+                    log.info('Removing stale subscriber %s (%s)', cid, e)
+                else:
+                    log.warning('Send failed to %s: %s', cid, e)
+        for cid in stale:
+            try:
+                await self._db.remove_subscriber(cid)
+            except Exception:
+                pass
+        return any_success
+
     # ------------------------------------------------------------------ #
-    # Command handlers
+    # Public command handlers
     # ------------------------------------------------------------------ #
     async def _cmd_start(
         self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE,
     ) -> None:
-        """Respond to /start."""
-        if update.effective_message is None:
+        """/start — subscribe this chat to Smart Bird alerts."""
+        if update.effective_message is None or update.effective_chat is None:
             return
-        if not self._is_authorised(update):
-            log.info(
-                '/start from unauthorized chat %s ignored',
-                update.effective_chat.id if update.effective_chat else '?',
-            )
-            return
+        chat_id = str(update.effective_chat.id)
+        fresh = await self._db.add_subscriber(chat_id)
+        header = (
+            '🐦 *Welcome to Smart Bird!*' if fresh
+            else '🐦 Already subscribed.'
+        )
         await update.effective_message.reply_text(
-            "Smart Bird monitoring active.\n\n"
+            f"{header}\n\n"
             "You'll get:\n"
             "🎯 Graduation Watch — Layer 1 passers (early heads-up)\n"
             "🐋 Smart Money Move — tracked alpha wallet entries\n"
             "🚨 Smart Bird Alert — all three layers aligned (flagship)\n"
             "🔴 Exit Signal — liquidity stress on watched tokens\n\n"
-            "Use /status for live counts, /watchlist for current tokens."
+            "Commands: /status /watchlist /stop\n\n"
+            "Built on Birdeye Data API • open source: "
+            "github.com/nuel-0x-md/smart-bird",
+            parse_mode=ParseMode.MARKDOWN,
+            disable_web_page_preview=True,
         )
+
+    async def _cmd_stop(
+        self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        """/stop — unsubscribe this chat from Smart Bird alerts."""
+        if update.effective_message is None or update.effective_chat is None:
+            return
+        chat_id = str(update.effective_chat.id)
+        removed = await self._db.remove_subscriber(chat_id)
+        if removed:
+            await update.effective_message.reply_text(
+                '👋 Unsubscribed. Send /start again to resume alerts.'
+            )
+        else:
+            await update.effective_message.reply_text(
+                'You weren\'t subscribed. Send /start to begin.'
+            )
 
     async def _cmd_status(
         self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE,
     ) -> None:
-        """Respond to /status with live pipeline counters."""
+        """/status — live pipeline counters."""
         if update.effective_message is None:
-            return
-        if not self._is_authorised(update):
-            log.info(
-                '/status from unauthorized chat %s ignored',
-                update.effective_chat.id if update.effective_chat else '?',
-            )
             return
         total = await self._db.count_total_tokens()
         layer1 = await self._db.count_by_status('layer1')
         layer2 = await self._db.count_by_status('layer2')
         alerted = await self._db.count_by_status('alerted')
         alerts_24h = await self._db.count_alerts_since(24 * 60 * 60)
+        subs = await self._db.count_subscribers()
         text = (
             '*Smart Bird status*\n'
+            f'Subscribers: {subs}\n'
             f'Tracked tokens: {total}\n'
             f'Layer 1 passed: {layer1}\n'
             f'Layer 2 confirmed: {layer2}\n'
@@ -168,14 +214,8 @@ class SmartBirdBot:
     async def _cmd_watchlist(
         self, update: Update, _ctx: ContextTypes.DEFAULT_TYPE,
     ) -> None:
-        """Respond to /watchlist with the current pipeline state."""
+        """/watchlist — tokens currently in the pipeline."""
         if update.effective_message is None:
-            return
-        if not self._is_authorised(update):
-            log.info(
-                '/watchlist from unauthorized chat %s ignored',
-                update.effective_chat.id if update.effective_chat else '?',
-            )
             return
         tokens = await self._db.get_tracked_tokens(
             ['layer1', 'layer2', 'alerted'],
@@ -185,6 +225,7 @@ class SmartBirdBot:
                 'Watchlist is empty — waiting for the next graduation candidate.'
             )
             return
+        from bot.formatter import _md_escape
         lines = ['*Smart Bird watchlist*']
         for t in tokens[:25]:
             symbol = _md_escape(t.get('symbol') or '???')

@@ -173,6 +173,8 @@ def validate() -> None:
             'TELEGRAM_BOT_TOKEN is empty — the bot will run but cannot deliver alerts.'
         )
     if not TELEGRAM_CHAT_ID:
-        log_cfg.warning(
-            'TELEGRAM_CHAT_ID is empty — alerts will be skipped at send time.'
+        log_cfg.info(
+            'TELEGRAM_CHAT_ID is empty — running in public multi-subscriber mode only. '
+            'Alerts fan out to every /start\'d chat. Set TELEGRAM_CHAT_ID for '
+            'a first-boot fallback recipient before any subscribers register.'
         )
