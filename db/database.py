@@ -65,6 +65,12 @@ CREATE TABLE IF NOT EXISTS alert_attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_dedup
     ON alert_attempts(token_address, alert_type, attempted_at);
+
+CREATE TABLE IF NOT EXISTS subscribers (
+    chat_id TEXT PRIMARY KEY,
+    added_at INTEGER NOT NULL,
+    muted INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -449,3 +455,54 @@ class Database:
             row = self._query_one('SELECT COUNT(*) AS c FROM tracked_tokens')
             return int(row['c']) if row else 0
         return await asyncio.to_thread(_run)
+
+    # ------------------------------------------------------------------ #
+    # Subscribers
+    # ------------------------------------------------------------------ #
+    async def add_subscriber(self, chat_id: str) -> bool:
+        """Register a chat_id. Returns True on fresh insert, False if already present."""
+        def _run() -> int:
+            cutoff = int(time.time())
+            return self._execute_with_rowcount(
+                """
+                INSERT INTO subscribers (chat_id, added_at, muted)
+                VALUES (?, ?, 0)
+                ON CONFLICT(chat_id) DO NOTHING
+                """,
+                (str(chat_id), cutoff),
+            )
+        return (await asyncio.to_thread(_run)) > 0
+
+    async def remove_subscriber(self, chat_id: str) -> bool:
+        """Unregister a chat_id. Returns True if the row existed."""
+        def _run() -> int:
+            return self._execute_with_rowcount(
+                "DELETE FROM subscribers WHERE chat_id = ?",
+                (str(chat_id),),
+            )
+        return (await asyncio.to_thread(_run)) > 0
+
+    async def get_subscribers(self) -> list[str]:
+        """Return all active (non-muted) subscriber chat_ids."""
+        def _run() -> list[dict]:
+            return self._query_all(
+                'SELECT chat_id FROM subscribers WHERE muted = 0'
+            )
+        rows = await asyncio.to_thread(_run)
+        return [r['chat_id'] for r in rows]
+
+    async def count_subscribers(self) -> int:
+        """Total registered subscribers regardless of mute state."""
+        def _run() -> int:
+            row = self._query_one('SELECT COUNT(*) AS c FROM subscribers')
+            return int(row['c']) if row else 0
+        return await asyncio.to_thread(_run)
+
+    async def set_mute(self, chat_id: str, muted: bool) -> bool:
+        """Toggle a subscriber's mute flag. Returns True if row was updated."""
+        def _run() -> int:
+            return self._execute_with_rowcount(
+                "UPDATE subscribers SET muted = ? WHERE chat_id = ?",
+                (1 if muted else 0, str(chat_id)),
+            )
+        return (await asyncio.to_thread(_run)) > 0

@@ -99,6 +99,8 @@ docker compose up --build -d
 docker compose logs -f smart-bird
 ```
 
+> **Public mode by default.** Any Telegram user who sends `/start` to your bot subscribes and will receive every alert. Use `/stop` to unsubscribe. If you want a **private** single-recipient bot instead, set `TELEGRAM_CHAT_ID` and don't share the bot username publicly — only that chat will subscribe via `/start`.
+
 > **Layer 2 requires `SMART_MONEY_WALLETS`** — a comma-separated list of Solana wallet addresses you want to track. Without it, Layer 2 is a no-op and no entry alerts will fire (exit alerts still work).
 
 The SQLite database and the `api_calls.log` file are persisted in the named volume `smart-bird-data` mounted at `/data`.
@@ -182,9 +184,10 @@ LP concentration: 87%
 
 | Command | Description |
 |---|---|
-| `/start` | Acknowledge and confirm monitoring is active. |
-| `/status` | Live counters: tracked tokens, Layer 1 / 2 / alerted, alerts in last 24h. |
-| `/watchlist` | List of tokens currently on the pipeline (Layer 1, Layer 2, alerted). |
+| `/start` | Subscribe this chat to Smart Bird alerts. |
+| `/stop` | Unsubscribe. |
+| `/status` | Live counters: subscribers, tracked tokens, Layer 1 / 2 / alerted, alerts in last 24h. |
+| `/watchlist` | List of tokens currently on the pipeline. |
 
 ---
 
